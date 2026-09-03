@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ICT Options Agent — Login</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <div class="auth-container">
+        <div class="logo">
+            <h1>📊 ICT OPTIONS AGENT</h1>
+            <p>AI-Powered Options Trading Terminal</p>
+        </div>
+
+        <div class="auth-card">
+            {% if authenticated %}
+            <div class="status-badge status-logged-in">● Authenticated</div>
+            <p style="margin-bottom: 1.5rem; color: #8B949E; font-size: 0.85rem;">
+                You are logged in. Access the trading dashboard below.
+            </p>
+            <a href="/dashboard" class="btn-primary">Launch Dashboard</a>
+            <form method="POST" action="/logout" style="margin-top: 1rem;">
+                <button type="submit" class="btn-secondary">Sign Out</button>
+            </form>
+            {% else %}
+            <div class="status-badge status-logged-out">● Not Authenticated</div>
+            <p style="margin-bottom: 1.5rem; color: #8B949E; font-size: 0.85rem;">
+                Sign in with Featherless to access the trading terminal.
+            </p>
+            <a href="/login" class="btn-primary">Connect with Featherless</a>
+            {% endif %}
+        </div>
+
+        <p class="info-text">
+            Secure OAuth 2.0 authentication · Server-side token storage<br>
+            Powered by Alpaca & OpenAI-compatible LLMs
+        </p>
+    </div>
+</body>
+</html>

@@ -1,0 +1,135 @@
+/* Global styles for auth pages */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+    font-family: 'JetBrains Mono', 'SF Mono', monospace;
+    background: #0D0F14;
+    color: #E6EDF3;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.auth-container {
+    max-width: 480px;
+    width: 100%;
+    padding: 2rem;
+}
+
+.logo {
+    text-align: center;
+    margin-bottom: 2rem;
+}
+
+.logo h1 {
+    font-size: 1.5rem;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    margin-bottom: 0.5rem;
+}
+
+.logo p {
+    font-size: 0.75rem;
+    color: #8B949E;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+}
+
+.auth-card {
+    background: #161B22;
+    border: 1px solid #30363D;
+    border-radius: 8px;
+    padding: 2rem;
+    text-align: center;
+}
+
+.status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    border-radius: 20px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    margin-bottom: 1.5rem;
+}
+
+.status-badge::before {
+    content: '';
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+}
+
+.status-logged-out {
+    background: #0D1117;
+    border: 1px solid #D29922;
+    color: #D29922;
+}
+.status-logged-out::before {
+    background: #D29922;
+    box-shadow: 0 0 8px #D29922;
+}
+
+.status-logged-in {
+    background: #0D1117;
+    border: 1px solid #238636;
+    color: #3FB950;
+}
+.status-logged-in::before {
+    background: #3FB950;
+    box-shadow: 0 0 8px #3FB950;
+}
+
+.btn-primary {
+    display: inline-block;
+    width: 100%;
+    padding: 1rem;
+    background: #238636;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    font-family: inherit;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    text-decoration: none;
+    transition: all 0.2s ease;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.btn-primary:hover {
+    background: #2ea043;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(35, 134, 54, 0.3);
+}
+
+.btn-secondary {
+    display: inline-block;
+    width: 100%;
+    padding: 0.75rem;
+    background: transparent;
+    color: #8B949E;
+    border: 1px solid #30363D;
+    border-radius: 6px;
+    font-family: inherit;
+    font-size: 0.8rem;
+    cursor: pointer;
+    text-decoration: none;
+    transition: all 0.2s ease;
+    margin-top: 1rem;
+}
+
+.btn-secondary:hover {
+    border-color: #8B949E;
+    color: #E6EDF3;
+}
+
+.info-text {
+    margin-top: 1.5rem;
+    font-size: 0.7rem;
+    color: #484F58;
+    line-height: 1.6;
+}
