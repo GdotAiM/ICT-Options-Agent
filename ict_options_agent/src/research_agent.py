@@ -27,7 +27,8 @@ def _call(prompt: str) -> Optional[Dict[str, Any]]:
     if not key: return None
     try:
         from openai import OpenAI
-        client=OpenAI(api_key=key)
+        base_url=os.getenv("LLM_BASE_URL")
+        client=OpenAI(api_key=key, base_url=base_url) if base_url else OpenAI(api_key=key)
         model=os.getenv("LLM_MODEL", "gpt-4o-mini")
         r=client.chat.completions.create(model=model,
           messages=[{"role":"system","content":RESEARCH_SYSTEM_PROMPT},{"role":"user","content":prompt}],
