@@ -38,7 +38,7 @@ FLATTEN_ON_KILL_SWITCH = os.getenv("FLATTEN_ON_KILL_SWITCH", "true").lower() == 
 STATE_DB_PATH = BASE_DIR / "data" / "agent_state.db"
 
 # Universe
-UNDERLYINGS = ["SPY", "QQQ", "IWM", "AAPL", "NVDA"]
+UNDERLYINGS = ["SPY", "QQQ"]
 
 # Options
 MIN_DTE = int(os.getenv("MIN_DTE", "3"))

@@ -136,7 +136,8 @@ def _llm_challenge(payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     if not key: return None
     try:
         from openai import OpenAI
-        client = OpenAI(api_key=key)
+        base_url = os.getenv("LLM_BASE_URL")
+        client = OpenAI(api_key=key, base_url=base_url) if base_url else OpenAI(api_key=key)
         prompt = """Act as an adversarial research reviewer for an ICT trading policy experiment.\n""" \
                 """Try to falsify the proposed policy. Look for data leakage, small samples, """ \
                 """overfitting, train/OOS decay, and whether the improvement is economically meaningful. """ \

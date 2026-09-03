@@ -62,6 +62,9 @@ def detect_liquidity_sweep(df: pd.DataFrame, lookback: int = 20) -> Optional[Dic
     """
     Simple sweep detector: price takes out a recent swing then closes back inside.
     Returns side and level if found on the latest bars.
+
+    Falls back to recent N-bar extremes when confirmed swings are sparse
+    (limited data history on paper-account data plans).
     """
     df = detect_swings(df)
     recent = df.iloc[-lookback:]
@@ -74,6 +77,11 @@ def detect_liquidity_sweep(df: pd.DataFrame, lookback: int = 20) -> Optional[Dic
         ssl = recent_lows.iloc[-1]
         if prev["low"] < ssl and last["close"] > ssl:
             return {"side": "bull", "level": float(ssl), "type": "ssl_sweep"}
+    else:
+        # Fallback: use recent N-bar low as liquidity target
+        recent_min = float(recent["low"].min())
+        if prev["low"] <= recent_min and last["close"] > recent_min:
+            return {"side": "bull", "level": recent_min, "type": "ssl_sweep_local"}
 
     # Buy-side liquidity sweep (bearish potential)
     recent_highs = recent["swing_high"].dropna()
@@ -81,6 +89,11 @@ def detect_liquidity_sweep(df: pd.DataFrame, lookback: int = 20) -> Optional[Dic
         bsl = recent_highs.iloc[-1]
         if prev["high"] > bsl and last["close"] < bsl:
             return {"side": "bear", "level": float(bsl), "type": "bsl_sweep"}
+    else:
+        # Fallback: use recent N-bar high as liquidity target
+        recent_max = float(recent["high"].max())
+        if prev["high"] >= recent_max and last["close"] < recent_max:
+            return {"side": "bear", "level": recent_max, "type": "bsl_sweep_local"}
 
     return None
 
@@ -111,7 +124,7 @@ def generate_ict_signal(df_15: pd.DataFrame, df_5: pd.DataFrame, as_of=None) -> 
     from config.settings import MIN_TIME_SCORE, REQUIRE_PRIMARY_WINDOW
     from src.utils import is_high_probability_time
 
-    if len(df_15) < 50 or len(df_5) < 30:
+    if len(df_15) < 15 or len(df_5) < 15:
         return None
 
     # --- Time layer (soft) ---

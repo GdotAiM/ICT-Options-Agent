@@ -15,50 +15,65 @@ from loguru import logger
 
 
 SYSTEM_PROMPT = """
-You are the decision engine of an ICT-inspired options trading agent.
+You are the decision engine of an ICT RTH Options Agent.
 
-Your job is NOT to invent a trading strategy and NOT to place orders. Your job
-is to reason over structured market evidence produced by deterministic ICT
-heuristics, decide whether the setup is worth expressing with an options
-structure, and explain the decision in machine-readable form.
+Your job is to reason over a structured RTH (Regular Trading Hours) market
+state produced by the RTH session engine, decide whether the current market
+delivery warrants an options trade, and explain the decision in
+machine-readable form.
 
-ICT FRAMEWORK TO USE
-1. Liquidity: distinguish buy-side liquidity (BSL) from sell-side liquidity
-   (SSL). A sweep is a raid of a prior swing/liquidity pool followed by
-   rejection/re-entry. Treat the sweep as the catalyst, not proof by itself.
-2. Market Structure Shift (MSS): look for displacement/structural change in
-   the direction implied by the sweep. A sweep without confirmation is weaker.
-3. Fair Value Gap (FVG): a three-candle imbalance can provide an entry/retrace
-   location after displacement. Do not invent an FVG if the evidence says none.
-4. Order Block (OB): use a detected OB as a supporting PD array, not as a
-   standalone trigger.
-5. Premium/Discount: bullish ideas are preferred in discount and bearish ideas
-   in premium relative to the supplied dealing range.
-6. Dealing Range / Equilibrium / Octants / Consequent Encroachment: use these
-   as location refinement when supplied.
-7. Time: ICT timing matters. Give extra weight to NY Open, Silver Bullet,
-   London Close and other supplied active windows. A good pattern outside its
-   intended time window should usually be WAIT or lower confidence.
-8. Opening Range Gap / FPFVG / wick imbalance: supporting confluence only.
-9. Seek & Destroy: when snd_warning is true, treat it as a major reason to
-   stand aside unless the evidence explicitly provides a compelling exception.
-10. Chain of Custody of Price: respect the supplied target/liquidity path and
-    invalidation. Prefer a coherent path from liquidity event -> MSS -> PD
-    array/FVG -> target.
+RTH FRAMEWORK
+The agent operates within US Regular Trading Hours (09:30–16:00 ET) and
+interprets market delivery through ICT concepts:
+
+1. SESSION PHASE: AM (09:30–12:00), Lunch (12:00–13:30), PM (13:30–16:00).
+   The AM session is primary for new entries. Lunch is lower confidence.
+   PM is for continuation or reversal plays.
+
+2. OPENING RANGE GAP (ORG): The gap between prior RTH settlement and the
+   09:30 open. Price tends to reprice toward the mid-gap (CE). A gap that
+   fills and reverses is a reversal signal. A gap that holds is continuation.
+
+3. OPENING RANGE (09:30–10:00): The first 30 minutes establish the OR.
+   Expansion above/below the OR is a directional signal. Rejection at OR
+   boundaries is a reversal signal.
+
+4. LIQUIDITY DELIVERY: Overnight highs/lows and OR highs/lows are liquidity
+   targets. A sweep (takeout + rejection) is a catalyst. Acceptance (hold
+   above/below) is continuation evidence.
+
+5. FIRST PRESENTED FVG: The first Fair Value Gap after the 09:30 open is
+   significant — it often provides the entry location for the session's
+   primary move.
+
+6. DISPLACEMENT: Strong directional expansion (range > 1.3x average) confirms
+   genuine delivery. Without displacement, signals are weaker.
+
+7. PREMIUM/DISCOUNT: Bullish ideas are preferred in discount (below mid-range).
+   Bearish ideas are preferred in premium (above mid-range).
+
+8. MSS: Market Structure Shift is ONE piece of structural evidence (5% weight),
+   NOT a hard gate. A sweep without MSS is still tradeable if other evidence
+   is strong.
+
+THESIS MODELS — classify the current state into one of:
+- EXPANSION: Price breaking out of OR with displacement and volume. Directional.
+- REVERSAL: Sweep of key liquidity followed by rejection back inside. Directional.
+- CONTINUATION: Established AM trend extending into PM. Directional.
+- REPRICING: Price filling toward ORG mid-gap or CE. Can be directional or neutral.
+- RANGE: No clear delivery. WAIT or IRON_CONDOR if IV supports it.
 
 OPTIONS EXPRESSION
-- Bullish directional thesis -> prefer BULL_CALL_SPREAD.
-- Bearish directional thesis -> prefer BEAR_PUT_SPREAD.
-- Only recommend IRON_CONDOR when the evidence is genuinely range/mean-reversion
-  oriented and there is no directional ICT imbalance being relied upon.
+- Bullish directional thesis -> BULL_CALL_SPREAD
+- Bearish directional thesis -> BEAR_PUT_SPREAD
+- Range/mean-reversion (no directional imbalance) -> IRON_CONDOR
+- Conflicting or incomplete evidence -> WAIT
 - Never claim an exact strike or premium without an options chain/quote.
-- Think in terms of defined risk, DTE, moneyness and liquidity. The execution
-  engine will select actual contracts and enforce hard limits.
+- Think in terms of defined risk, DTE, moneyness and liquidity.
 - Do not recommend naked short options.
 
 CRITICAL RULES
-- The deterministic signal bias is authoritative. You may reject it, but you
-  may not flip bull to bear or bear to bull.
+- The RTH state bias is a hint, not a command. You may reject it.
 - Never manufacture missing evidence.
 - Confidence is a judgment score, NOT a probability of profit.
 - If evidence is contradictory, choose WAIT.
@@ -68,7 +83,7 @@ CRITICAL RULES
 
 
 def _evidence(signal: Dict[str, Any], options_evidence: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """Create a compact, explicit ICT evidence packet for the model."""
+    """Create a compact ICT evidence packet for the model."""
     keys = [
         "symbol", "bias", "underlying_price", "entry_zone", "stop", "target",
         "sweep_level", "pd_zone", "combined_score", "time_score",
@@ -78,6 +93,21 @@ def _evidence(signal: Dict[str, Any], options_evidence: Optional[Dict[str, Any]]
         "wick_imbalance", "chain_of_custody", "mss", "fvg", "displacement",
     ]
     out = {k: signal.get(k) for k in keys if k in signal}
+    if options_evidence is not None:
+        out["options_chain"] = options_evidence
+    return out
+
+
+def _rth_evidence(rth_state: Dict[str, Any], options_evidence: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Create a compact RTH market state packet for the model."""
+    keys = [
+        "symbol", "session", "timestamp_et", "last_price", "bias",
+        "combined_score", "score_breakdown", "rth_open", "prior_rth_close",
+        "org", "opening_range", "overnight", "liquidity", "displacement",
+        "first_presented_fvg", "mss", "pd_zone", "pd_mid",
+        "pd_range_high", "pd_range_low", "or_status", "reason",
+    ]
+    out = {k: rth_state.get(k) for k in keys if k in rth_state}
     if options_evidence is not None:
         out["options_chain"] = options_evidence
     return out
@@ -124,14 +154,22 @@ def _fallback(signal: Dict[str, Any], reason: str = "LLM unavailable") -> Dict[s
     }
 
 
+def _make_client():
+    """Create an OpenAI-compatible client, honouring LLM_BASE_URL for custom endpoints."""
+    from openai import OpenAI
+    api_key = os.getenv("OPENAI_API_KEY") or os.getenv("LLM_API_KEY") or "proxy-key"
+    base_url = os.getenv("LLM_BASE_URL")
+    if base_url:
+        return OpenAI(api_key=api_key, base_url=base_url)
+    return OpenAI(api_key=api_key)
+
+
 def _call_openai(signal: Dict[str, Any], options_evidence: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
     api_key = os.getenv("OPENAI_API_KEY") or os.getenv("LLM_API_KEY")
     if not api_key:
         return None
     try:
-        from openai import OpenAI
-
-        client = OpenAI(api_key=api_key)
+        client = _make_client()
         model = os.getenv("LLM_MODEL", "gpt-4o-mini")
         user_prompt = f"""
 Analyze this ICT evidence packet for {signal.get('symbol')}.
@@ -177,8 +215,7 @@ Use only supplied evidence. Use the supplied live chain to reason about DTE, mon
     except TypeError:
         # Older OpenAI SDKs may not support response_format in the same way.
         try:
-            from openai import OpenAI
-            client = OpenAI(api_key=api_key)
+            client = _make_client()
             model = os.getenv("LLM_MODEL", "gpt-4o-mini")
             response = client.chat.completions.create(
                 model=model,
@@ -209,8 +246,7 @@ def _challenge_openai(signal: Dict[str, Any], proposal: Dict[str, Any], options_
     if not api_key:
         return None
     try:
-        from openai import OpenAI
-        client = OpenAI(api_key=api_key)
+        client = _make_client()
         model = os.getenv("LLM_MODEL", "gpt-4o-mini")
         prompt = f"""
 You are the adversarial ICT thesis challenger. Try to DISPROVE this proposed options trade.
@@ -321,6 +357,254 @@ def run_ict_agent(signal: Dict[str, Any], require_llm: bool = False, options_evi
     return validated
 
 
+# ── RTH Agent ───────────────────────────────────────────────────
+
+def _call_rth_openai(rth_state: Dict[str, Any], options_evidence: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
+    """Call the LLM with an RTH market state packet."""
+    api_key = os.getenv("OPENAI_API_KEY") or os.getenv("LLM_API_KEY")
+    if not api_key:
+        return None
+    try:
+        client = _make_client()
+        model = os.getenv("LLM_MODEL", "gpt-4o-mini")
+        user_prompt = f"""
+Analyze this RTH market state for {rth_state.get('symbol')}.
+
+{json.dumps(_rth_evidence(rth_state, options_evidence), default=str, indent=2)}
+
+Classify the current market delivery model (EXPANSION / REVERSAL / CONTINUATION / REPRICING / RANGE)
+and decide whether to TRADE or WAIT.
+
+Return exactly this JSON schema:
+{{
+  "decision": "TRADE" | "WAIT",
+  "approve": true | false,
+  "direction": "bull" | "bear" | "neutral",
+  "thesis_model": "EXPANSION" | "REVERSAL" | "CONTINUATION" | "REPRICING" | "RANGE",
+  "options_strategy": "BULL_CALL_SPREAD" | "BEAR_PUT_SPREAD" | "IRON_CONDOR" | "NONE",
+  "confidence": 0.0,
+  "ict_thesis": "short market narrative grounded in the RTH state",
+  "required_confluences": ["..."],
+  "missing_confluences": ["..."],
+  "entry_condition": "what must remain true",
+  "invalidation": "price/event that invalidates the thesis",
+  "target": "liquidity/price objective",
+  "rationale": "concise decision explanation",
+  "preferred_dte": 7,
+  "preferred_moneyness": "ATM_to_slightly_ITM",
+  "chain_requirements": ["tight quotes", "adequate open interest"]
+}}
+
+Use only supplied evidence. Do not invent exact option strikes, premiums or Greeks.
+"""
+        response = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.05,
+            max_tokens=700,
+            response_format={"type": "json_object"},
+        )
+        raw = response.choices[0].message.content or "{}"
+        data = _safe_json_parse(raw)
+        if data is None:
+            logger.warning(f"RTH agent returned unparseable JSON: {raw[:100]}")
+            return None
+        data["source"] = "openai_rth_agent"
+        data["model"] = model
+        return data
+    except Exception as e:
+        logger.warning(f"RTH LLM agent unavailable: {e}")
+        return None
+
+
+def _rth_fallback(rth_state: Dict[str, Any], reason: str = "LLM unavailable") -> Dict[str, Any]:
+    """Deterministic fallback for the RTH agent."""
+    score = float(rth_state.get("combined_score", 0.0))
+    bias = rth_state.get("bias", "neutral")
+    session = rth_state.get("session", "")
+
+    blockers = []
+    if score < 0.35:
+        blockers.append(f"RTH score {score:.2f} below 0.35")
+    if session == "rth_lunch":
+        blockers.append("lunch session — lower confidence")
+    if bias == "neutral":
+        blockers.append("no directional bias from RTH evidence")
+
+    decision = "WAIT" if blockers else "TRADE"
+    strategy = "BULL_CALL_SPREAD" if bias == "bull" else "BEAR_PUT_SPREAD" if bias == "bear" else "NONE"
+    if decision == "WAIT":
+        rationale = "; ".join(blockers)
+    else:
+        rationale = "RTH evidence supports the directional thesis."
+
+    return {
+        "decision": decision,
+        "approve": decision == "TRADE",
+        "direction": bias,
+        "thesis_model": "RANGE",
+        "options_strategy": strategy,
+        "confidence": max(0.0, min(1.0, score)),
+        "ict_thesis": rth_state.get("reason", ""),
+        "required_confluences": ["RTH session", "liquidity", "ORG", "displacement"],
+        "missing_confluences": blockers,
+        "entry_condition": "Execute only after deterministic quote and risk gates pass.",
+        "invalidation": None,
+        "target": None,
+        "rationale": rationale,
+        "source": "deterministic_fallback",
+        "model": None,
+        "fallback_reason": reason,
+    }
+
+
+def _validate_rth(data: Dict[str, Any], rth_state: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize RTH model output."""
+    bias = rth_state.get("bias", "neutral")
+    decision = str(data.get("decision", "WAIT")).upper()
+    direction = str(data.get("direction", bias)).lower()
+    strategy = str(data.get("options_strategy", "NONE")).upper()
+
+    if direction not in {"bull", "bear", "neutral"}:
+        direction = bias or "neutral"
+
+    # Allow the AI to go neutral (unlike old agent which forced bias match)
+    if direction == "bull" and strategy not in {"BULL_CALL_SPREAD", "NONE"}:
+        decision = "WAIT"
+    if direction == "bear" and strategy not in {"BEAR_PUT_SPREAD", "NONE"}:
+        decision = "WAIT"
+
+    if decision not in {"TRADE", "WAIT"}:
+        decision = "WAIT"
+    confidence = float(data.get("confidence", 0.0) or 0.0)
+    confidence = max(0.0, min(1.0, confidence))
+
+    data.update({
+        "decision": decision,
+        "approve": decision == "TRADE",
+        "direction": direction,
+        "options_strategy": strategy,
+        "confidence": confidence,
+        "preferred_dte": max(0, min(60, int(float(data.get("preferred_dte", 7) or 7)))),
+        "preferred_moneyness": str(data.get("preferred_moneyness", "ATM_to_slightly_ITM")),
+        "chain_requirements": data.get("chain_requirements", []),
+        "rth_evidence": _rth_evidence(rth_state),
+    })
+    return data
+
+
+def run_rth_agent(
+    rth_state: Dict[str, Any],
+    require_llm: bool = False,
+    options_evidence: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Run the RTH-aware AI thesis agent with adversarial challenge."""
+    llm = _call_rth_openai(rth_state, options_evidence)
+    if llm is None:
+        fallback = _rth_fallback(rth_state)
+        if require_llm:
+            fallback.update({
+                "decision": "WAIT", "approve": False,
+                "rationale": "AI_REQUIRED=true but the configured LLM was unavailable; fail-closed.",
+                "source": "ai_unavailable_fail_closed",
+            })
+        return fallback
+
+    validated = _validate_rth(llm, rth_state)
+    validated["rth_evidence"] = _rth_evidence(rth_state, options_evidence)
+
+    # Adversarial challenge
+    challenge = _challenge_rth_openai(rth_state, validated, options_evidence)
+    if challenge is not None:
+        validated["adversarial_review"] = challenge
+        if str(challenge.get("verdict", "FAIL")).upper() != "PASS":
+            validated["decision"] = "WAIT"
+            validated["approve"] = False
+            validated["rationale"] = "Adversarial RTH thesis challenge failed: " + str(challenge.get("reason", "contradictory evidence"))
+    else:
+        validated["adversarial_review"] = {"verdict": "UNAVAILABLE"}
+        validated["decision"] = "WAIT"
+        validated["approve"] = False
+        validated["rationale"] = "Adversarial RTH thesis review unavailable; fail closed."
+    return validated
+
+
+def _safe_json_parse(text: str) -> Optional[Dict[str, Any]]:
+    """Parse JSON tolerantly, handling common LLM output issues."""
+    text = text.strip()
+    # Try direct parse
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+    # Try extracting JSON from text
+    start = text.find("{")
+    end = text.rfind("}") + 1
+    if start >= 0 and end > start:
+        try:
+            return json.loads(text[start:end])
+        except json.JSONDecodeError:
+            pass
+    # Try fixing trailing commas
+    import re
+    cleaned = re.sub(r",\s*}", "}", text[start:end] if start >= 0 else text)
+    cleaned = re.sub(r",\s*]", "]", cleaned)
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        pass
+    return None
+
+
+def _challenge_rth_openai(
+    rth_state: Dict[str, Any],
+    proposal: Dict[str, Any],
+    options_evidence: Optional[Dict[str, Any]] = None,
+) -> Optional[Dict[str, Any]]:
+    """Adversarial reviewer for RTH thesis."""
+    api_key = os.getenv("OPENAI_API_KEY") or os.getenv("LLM_API_KEY")
+    if not api_key:
+        return None
+    try:
+        client = _make_client()
+        model = os.getenv("LLM_MODEL", "gpt-4o-mini")
+        prompt = f"""
+You are the adversarial RTH thesis challenger. Try to DISPROVE this proposed options trade.
+Check: session phase appropriateness, ORG quality, opening range behavior, liquidity sweep validity,
+displacement strength, FVG relevance, PD location, and whether the proposed options structure
+is supported by the supplied live chain.
+Reject if evidence is missing, contradictory, stale/wide, illiquid, or structurally incoherent.
+Return JSON only: {{"verdict":"PASS"|"FAIL","confidence":0.0,"contradictions":["..."],"fatal_risks":["..."],"reason":"..."}}
+
+RTH STATE:
+{json.dumps(_rth_evidence(rth_state, options_evidence), default=str)}
+
+PROPOSAL:
+{json.dumps(proposal, default=str)}
+"""
+        response = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": prompt}],
+            temperature=0.0,
+            max_tokens=450,
+            response_format={"type": "json_object"},
+        )
+        raw = response.choices[0].message.content or "{}"
+        data = _safe_json_parse(raw)
+        if data is None:
+            logger.warning(f"RTH challenger returned unparseable JSON: {raw[:100]}")
+            return None
+        data["source"] = "openai_rth_challenger"
+        data["model"] = model
+        return data
+    except Exception as e:
+        logger.warning(f"RTH challenger unavailable: {e}")
+        return None
+
+
 def reassess_open_position(context: Dict[str, Any], position: Dict[str, Any], require_llm: bool = False) -> Dict[str, Any]:
     """AI post-trade monitor: reassess the original ICT thesis against live position state.
 
@@ -335,8 +619,7 @@ def reassess_open_position(context: Dict[str, Any], position: Dict[str, Any], re
     if not api_key:
         return {"verdict": "UNAVAILABLE", "action": "HOLD", "reason": "LLM unavailable"}
     try:
-        from openai import OpenAI
-        client = OpenAI(api_key=api_key)
+        client = _make_client()
         model = os.getenv("LLM_MODEL", "gpt-4o-mini")
         prompt = f"""
 You are the post-trade ICT position monitor. Reassess the original thesis using current position state.

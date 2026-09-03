@@ -31,7 +31,7 @@ from src.risk import (
     delta_within_limit,
 )
 from src.quotes import net_debit_credit, iron_condor_credit
-from src.llm_agent import run_ict_agent, reassess_open_position
+from src.llm_agent import run_ict_agent, run_rth_agent, reassess_open_position
 from src.options_chain_agent import build_options_chain_evidence
 from src.research_agent import build_hypothesis, resolve_learning
 from src.mcp_exec import execute_options_order
@@ -39,6 +39,7 @@ from src.audit import write_cycle_audit, summarize_signal_for_audit
 from src.status import print_status
 from src.utils import now_et
 from src import state_store
+from src.rth_engine import build_rth_state, is_rth, get_session_phase
 import json
 
 
@@ -122,16 +123,30 @@ class ICTOptionsAgent:
             ) from e
 
     def get_bars(self, symbol: str, minutes: int = 15, limit: int = 200):
-        tf = TimeFrame(minutes, TimeFrameUnit.Minute)
-        req = StockBarsRequest(
+        """
+        Fetch bars from Alpaca.  The paper-account data plan only allows
+        same-day SIP bars, so we always fetch 1-minute bars and resample
+        to the requested timeframe.  This gives us far more history
+        (273+ 1m bars vs 23 direct 15m bars) and lets the ICT detectors
+        reach their minimum lookback thresholds.
+        """
+        req_1m = StockBarsRequest(
             symbol_or_symbols=symbol,
-            timeframe=tf,
-            limit=limit,
+            timeframe=TimeFrame(1, TimeFrameUnit.Minute),
+            limit=limit * minutes,
         )
-        bars = self.data_client.get_stock_bars(req).df
-        if hasattr(bars.index, "levels"):
-            bars = bars.xs(symbol)
-        return bars
+        df_1m = self.data_client.get_stock_bars(req_1m).df
+        if hasattr(df_1m.index, "levels"):
+            df_1m = df_1m.xs(symbol)
+        if minutes == 1:
+            return df_1m
+        if len(df_1m) < minutes:
+            return df_1m
+        df_res = df_1m.resample(f"{minutes}min").agg(
+            {"open": "first", "high": "max", "low": "min",
+             "close": "last", "volume": "sum"}
+        ).dropna()
+        return df_res
 
     def detect_signal(self, symbol: str) -> Optional[Dict[str, Any]]:
         # Soft pre-filter – still allow legacy broad window; precise scoring happens inside generate_ict_signal
@@ -740,6 +755,158 @@ class ICTOptionsAgent:
             if sym not in grouped_closed:
                 self._close_position_single(pos, why)
 
+    def detect_rth_signal(self, symbol: str) -> Optional[Dict[str, Any]]:
+        """
+        RTH-based signal detection: build a structured market state
+        from the RTH session engine instead of requiring MSS-gated patterns.
+        """
+        if not is_rth():
+            logger.debug(f"{symbol}: outside RTH, skip")
+            return None
+
+        try:
+            df_1m = self.get_bars(symbol, minutes=1, limit=1000)
+            df_5m = self.get_bars(symbol, minutes=5, limit=200)
+            df_15m = self.get_bars(symbol, minutes=15, limit=200)
+        except Exception as e:
+            logger.error(f"Data fetch failed for {symbol}: {e}")
+            return None
+
+        if len(df_1m) < 5:
+            logger.debug(f"{symbol}: insufficient 1m bars ({len(df_1m)})")
+            return None
+
+        # Use prior session close as proxy (first bar open if no prior data)
+        prior_rth_close = float(df_1m["open"].iloc[0])
+
+        rth_state = build_rth_state(
+            df_1m=df_1m,
+            df_5m=df_5m,
+            df_15m=df_15m,
+            prior_rth_close=prior_rth_close,
+            symbol=symbol,
+        )
+        if rth_state:
+            logger.info(
+                f"RTH STATE {symbol}: {rth_state['session']} | "
+                f"bias={rth_state['bias']} | score={rth_state.get('combined_score', 0):.2f} | "
+                f"{rth_state.get('reason', '')}"
+            )
+        return rth_state
+
+    def execute_rth(self, rth_state: Dict[str, Any]):
+        """Execute using the RTH AI thesis agent."""
+        if self.halted_today:
+            logger.warning("Kill switch engaged today — skipping new entry")
+            self._cycle_signals.append(summarize_signal_for_audit(rth_state))
+            return
+        breached, reason = check_daily_kill_switch(self.day_starting_equity, self.equity)
+        if breached:
+            state_store.set_halted(reason)
+            self.halted_today = True
+            return
+
+        try:
+            positions = self.trade_client.get_all_positions()
+        except Exception:
+            positions = []
+        if not can_open_new_position(len(positions)):
+            logger.warning("Max positions reached")
+            rth_state["blocked"] = "max_positions"
+            self._cycle_signals.append(summarize_signal_for_audit(rth_state))
+            return
+
+        ok_delta, delta_reason = delta_within_limit(positions)
+        if not ok_delta:
+            logger.warning(delta_reason)
+            rth_state["blocked"] = delta_reason
+            self._cycle_signals.append(summarize_signal_for_audit(rth_state))
+            return
+
+        # Idempotency
+        strategy = "rth"
+        window = rth_state.get("session", "unknown")
+        signal_hash = state_store.make_signal_hash(
+            rth_state.get("symbol", ""), strategy,
+            rth_state.get("bias", "neutral"), window,
+        )
+        rth_state["signal_hash"] = signal_hash
+        if state_store.has_active_order_for_signal(signal_hash):
+            logger.info(f"Signal {signal_hash} already has an active order — skipping")
+            return
+
+        # Build options chain evidence
+        try:
+            options_evidence = build_options_chain_evidence(
+                self.trade_client, rth_state.get("symbol", ""), rth_state,
+            )
+        except Exception as e:
+            options_evidence = {"available": False, "reason": str(e)}
+        rth_state["options_chain_evidence"] = options_evidence
+
+        # Run RTH AI agent
+        decision = run_rth_agent(
+            rth_state,
+            require_llm=settings.AI_REQUIRED,
+            options_evidence=options_evidence,
+        )
+        rth_state["ai_decision"] = decision
+        rth_state["veto"] = decision
+
+        if decision.get("decision") != "TRADE" or not decision.get("approve", False):
+            logger.warning(
+                f"AI chose WAIT ({decision.get('source')}): {decision.get('rationale')}"
+            )
+            self._cycle_signals.append(summarize_signal_for_audit(rth_state))
+            return
+
+        # Research hypothesis
+        if settings.RESEARCH_ENABLED:
+            try:
+                memory = state_store.recent_research_memory(settings.RESEARCH_MEMORY_LIMIT)
+                hypothesis = build_hypothesis(rth_state, decision, memory)
+                rth_state["research_hypothesis"] = hypothesis
+                state_store.record_hypothesis(signal_hash, hypothesis)
+                logger.info(
+                    f"RESEARCH HYPOTHESIS | tag={hypothesis.get('experiment_tag')} | "
+                    f"{hypothesis.get('hypothesis')}"
+                )
+            except Exception as e:
+                logger.warning(f"Research hypothesis failed: {e}")
+
+        state_store.record_ai_context(signal_hash, {
+            "signal": rth_state,
+            "ai_decision": decision,
+            "research_hypothesis": rth_state.get("research_hypothesis", {}),
+        })
+        rth_state["ai_options_dte_target"] = decision.get("preferred_dte", 7)
+        rth_state["ai_options_moneyness"] = decision.get("preferred_moneyness")
+        if options_evidence.get("selected_expiration"):
+            rth_state["ai_selected_expiration"] = options_evidence["selected_expiration"]
+        logger.info(
+            f"AI TRADE decision ({decision.get('source')}) | "
+            f"thesis={decision.get('thesis_model')} | "
+            f"strategy={decision.get('options_strategy')} | "
+            f"conf={decision.get('confidence', 0):.2f} | {decision.get('rationale')}"
+        )
+
+        # Execute the options expression
+        ai_strategy = decision.get("options_strategy", "NONE")
+        # Convert RTH state to a signal-compatible dict for the execution methods
+        exec_signal = {
+            "symbol": rth_state.get("symbol", ""),
+            "bias": decision.get("direction", rth_state.get("bias", "neutral")),
+            "signal_hash": signal_hash,
+            "underlying_price": rth_state.get("last_price", 0),
+        }
+        if ai_strategy == "IRON_CONDOR":
+            self.execute_condor(exec_signal)
+        elif ai_strategy in {"BULL_CALL_SPREAD", "BEAR_PUT_SPREAD"}:
+            self.execute_directional(exec_signal)
+        else:
+            logger.warning("AI did not select a valid options expression — WAIT")
+        self._cycle_signals.append(summarize_signal_for_audit(rth_state))
+
     def run_cycle(self):
         self._cycle_signals = []
         self._cycle_orders = []
@@ -760,10 +927,13 @@ class ICTOptionsAgent:
             logger.warning("Kill switch engaged — skipping this cycle's signal scan")
             self._write_audit_and_status()
             return
+
+        # RTH engine path: use the session-based market state
+        # instead of the old MSS-gated detector
         for symbol in settings.UNDERLYINGS:
-            signal = self.detect_signal(symbol)
-            if signal:
-                self.execute(signal)
+            rth_state = self.detect_rth_signal(symbol)
+            if rth_state:
+                self.execute_rth(rth_state)
         self._write_audit_and_status()
 
     def _write_audit_and_status(self):

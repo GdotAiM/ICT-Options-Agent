@@ -21,7 +21,12 @@ def base_signal(**overrides):
     return s
 
 
-def test_fallback_is_an_ict_trade_decision():
+def test_fallback_is_an_ict_trade_decision(monkeypatch):
+    """When the LLM is unavailable, the deterministic fallback should
+    produce a TRADE decision for a high-confluence signal."""
+    import src.llm_agent as mod
+    monkeypatch.setattr(mod, "_call_openai", lambda signal, options_evidence=None: None)
+    monkeypatch.setattr(mod, "_challenge_openai", lambda *a, **kw: {"verdict": "PASS", "reason": "ok"})
     d = run_ict_agent(base_signal())
     assert d["decision"] == "TRADE"
     assert d["direction"] == "bull"
@@ -29,7 +34,12 @@ def test_fallback_is_an_ict_trade_decision():
     assert "liquidity sweep" in d["required_confluences"]
 
 
-def test_seek_destroy_forces_wait():
+def test_seek_destroy_forces_wait(monkeypatch):
+    """When the LLM is unavailable, the deterministic fallback should
+    produce WAIT when snd_warning is True."""
+    import src.llm_agent as mod
+    monkeypatch.setattr(mod, "_call_openai", lambda signal, options_evidence=None: None)
+    monkeypatch.setattr(mod, "_challenge_openai", lambda *a, **kw: {"verdict": "PASS", "reason": "ok"})
     d = run_ict_agent(base_signal(snd_warning=True))
     assert d["decision"] == "WAIT"
     assert d["approve"] is False
