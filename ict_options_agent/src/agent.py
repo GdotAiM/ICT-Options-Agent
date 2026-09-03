@@ -759,6 +759,9 @@ class ICTOptionsAgent:
         """
         RTH-based signal detection: build a structured market state
         from the RTH session engine instead of requiring MSS-gated patterns.
+
+        Also fetches micro-bar (15s) data from trade ticks to enrich
+        the state with higher-density FVGs, sweeps, and displacement.
         """
         if not is_rth():
             logger.debug(f"{symbol}: outside RTH, skip")
@@ -779,18 +782,41 @@ class ICTOptionsAgent:
         # Use prior session close as proxy (first bar open if no prior data)
         prior_rth_close = float(df_1m["open"].iloc[0])
 
+        # Fetch micro-bars from trade data (15-min delayed, but enriches patterns)
+        micro_bars = None
+        try:
+            from src.micro_bars import build_micro_bars_multi
+            micro_bars = build_micro_bars_multi(
+                symbol, client=self.data_client, lookback_minutes=120,
+            )
+            if micro_bars and (micro_bars.get("15s") is not None):
+                logger.debug(
+                    f"{symbol}: micro-bars fetched — "
+                    f"15s={len(micro_bars['15s'])} bars"
+                )
+        except Exception as e:
+            logger.debug(f"{symbol}: micro-bars unavailable: {e}")
+
         rth_state = build_rth_state(
             df_1m=df_1m,
             df_5m=df_5m,
             df_15m=df_15m,
             prior_rth_close=prior_rth_close,
             symbol=symbol,
+            micro_bars=micro_bars,
         )
         if rth_state:
+            micro_info = ""
+            if rth_state.get("micro_fvg_count"):
+                micro_info = (
+                    f" | microFVG={rth_state['micro_fvg_count']}"
+                    f" microSweep={rth_state.get('micro_sweep_count', 0)}"
+                    f" microBonus={rth_state.get('micro_evidence_bonus', 0):.3f}"
+                )
             logger.info(
                 f"RTH STATE {symbol}: {rth_state['session']} | "
                 f"bias={rth_state['bias']} | score={rth_state.get('combined_score', 0):.2f} | "
-                f"{rth_state.get('reason', '')}"
+                f"{rth_state.get('reason', '')}{micro_info}"
             )
         return rth_state
 

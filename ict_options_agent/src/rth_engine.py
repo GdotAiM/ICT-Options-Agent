@@ -394,6 +394,7 @@ def build_rth_state(
     df_15m: pd.DataFrame,
     prior_rth_close: Optional[float] = None,
     symbol: str = "",
+    micro_bars: Optional[dict] = None,
 ) -> Optional[Dict[str, Any]]:
     """
     Build the complete RTH market state for AI consumption.
@@ -401,6 +402,11 @@ def build_rth_state(
     This is the primary output of the RTH engine. It replaces the old
     MSS-gated signal with a structured market state that the AI can
     reason about.
+
+    If micro_bars is provided (dict with '15s'/'30s' DataFrames from
+    micro_bars.build_micro_bars_multi), the state is enriched with
+    sub-minute FVGs, sweeps, and displacement for much higher pattern
+    density.
     """
     if df_1m is None or len(df_1m) < 5:
         return None
@@ -553,5 +559,17 @@ def build_rth_state(
     parts.append(f"PD_{pd_info.get('zone', '?')}")
     parts.append(f"score={score:.2f}")
     state["reason"] = " + ".join(parts)
+
+    # Enrich with micro-bar data if provided
+    if micro_bars:
+        try:
+            from src.micro_bars import enrich_rth_state
+            state = enrich_rth_state(
+                state,
+                df_micro_15s=micro_bars.get("15s"),
+                df_micro_30s=micro_bars.get("30s"),
+            )
+        except Exception as e:
+            logger.debug(f"Micro-bar enrichment failed: {e}")
 
     return state

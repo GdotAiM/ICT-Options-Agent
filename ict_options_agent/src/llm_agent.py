@@ -79,6 +79,16 @@ CRITICAL RULES
 - If evidence is contradictory, choose WAIT.
 - Risk limits are enforced outside you; never suggest bypassing them.
 - Return JSON only.
+
+PAPER TRADING MODE
+- When options_chain.available is false or shows zero OI/volume, this is
+  expected on a paper trading account — it does NOT mean the market is
+  illiquid. Do NOT reject a trade solely because the paper options chain
+  lacks real OI/volume data.
+- In paper mode, evaluate the thesis on its ICT/RTH merits. The options
+  execution layer will handle strike selection deterministically.
+- Only reject on options grounds if the chain is genuinely missing (no
+  expirations, no strikes at all), not just zero OI.
 """
 
 
@@ -106,6 +116,10 @@ def _rth_evidence(rth_state: Dict[str, Any], options_evidence: Optional[Dict[str
         "org", "opening_range", "overnight", "liquidity", "displacement",
         "first_presented_fvg", "mss", "pd_zone", "pd_mid",
         "pd_range_high", "pd_range_low", "or_status", "reason",
+        # Micro-bar enrichment fields
+        "micro_fvgs", "micro_sweeps", "micro_displacement",
+        "micro_fvg_count", "micro_sweep_count", "micro_evidence_bonus",
+        "micro_bias", "micro_bias_confirmed",
     ]
     out = {k: rth_state.get(k) for k in keys if k in rth_state}
     if options_evidence is not None:
@@ -372,6 +386,13 @@ Analyze this RTH market state for {rth_state.get('symbol')}.
 
 {json.dumps(_rth_evidence(rth_state, options_evidence), default=str, indent=2)}
 
+The state may include micro_bar evidence (micro_fvgs, micro_sweeps, micro_displacement)
+from 15-second bars built out of trade data. These are higher-density patterns that
+confirm or contradict the 1m/5m evidence. Weight them as confirming signals.
+
+If options_chain.available is false, this is a PAPER TRADING account — do not
+reject solely for missing options OI/volume. Evaluate on ICT/RTH merits.
+
 Classify the current market delivery model (EXPANSION / REVERSAL / CONTINUATION / REPRICING / RANGE)
 and decide whether to TRADE or WAIT.
 
@@ -576,7 +597,13 @@ You are the adversarial RTH thesis challenger. Try to DISPROVE this proposed opt
 Check: session phase appropriateness, ORG quality, opening range behavior, liquidity sweep validity,
 displacement strength, FVG relevance, PD location, and whether the proposed options structure
 is supported by the supplied live chain.
-Reject if evidence is missing, contradictory, stale/wide, illiquid, or structurally incoherent.
+
+PAPER TRADING MODE: If options_chain.available is false or shows zero OI/volume, this is
+expected on a paper account. Do NOT reject solely for options chain illiquidity — evaluate
+the thesis on its ICT/RTH structural merits. Only reject on options grounds if the chain
+is genuinely missing (no expirations at all).
+
+Reject if ICT/RTH evidence is missing, contradictory, or structurally incoherent.
 Return JSON only: {{"verdict":"PASS"|"FAIL","confidence":0.0,"contradictions":["..."],"fatal_risks":["..."],"reason":"..."}}
 
 RTH STATE:
