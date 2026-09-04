@@ -1,0 +1,225 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "Trading Cycle Workflow",
+    "output": "agent-workflow.html",
+    "quality_profile": "showcase"
+  },
+  "lanes": [
+    {
+      "id": "trigger",
+      "label": "Trigger"
+    },
+    {
+      "id": "detect",
+      "label": "Detection"
+    },
+    {
+      "id": "decision",
+      "label": "AI Decision"
+    },
+    {
+      "id": "exec",
+      "label": "Execution"
+    },
+    {
+      "id": "persist",
+      "label": "Persistence"
+    }
+  ],
+  "phases": [
+    {
+      "id": "start",
+      "label": "Start",
+      "fromCol": 0,
+      "toCol": 0
+    },
+    {
+      "id": "analyze",
+      "label": "Analyze",
+      "fromCol": 1,
+      "toCol": 2
+    },
+    {
+      "id": "decide",
+      "label": "Decide",
+      "fromCol": 3,
+      "toCol": 3
+    },
+    {
+      "id": "act",
+      "label": "Act",
+      "fromCol": 4,
+      "toCol": 5
+    }
+  ],
+  "mainPath": [
+    "timer",
+    "agent",
+    "fetch",
+    "detect",
+    "ai",
+    "challenger",
+    "risk",
+    "order",
+    "audit"
+  ],
+  "nodes": [
+    {
+      "id": "timer",
+      "lane": "trigger",
+      "col": 0,
+      "type": "backend",
+      "label": "Timer",
+      "sublabel": "5-min tick",
+      "width": 110
+    },
+    {
+      "id": "agent",
+      "lane": "detect",
+      "col": 1,
+      "type": "backend",
+      "label": "Agent Core",
+      "sublabel": "run_cycle()",
+      "width": 110
+    },
+    {
+      "id": "fetch",
+      "lane": "detect",
+      "col": 2,
+      "type": "backend",
+      "label": "Fetch Bars",
+      "sublabel": "Alpaca data",
+      "width": 110
+    },
+    {
+      "id": "detect",
+      "lane": "detect",
+      "col": 3,
+      "type": "backend",
+      "label": "Detect Signals",
+      "sublabel": "ICT patterns",
+      "width": 110
+    },
+    {
+      "id": "ai",
+      "lane": "decision",
+      "col": 3,
+      "type": "backend",
+      "label": "LLM Agent",
+      "sublabel": "TRADE/WAIT",
+      "width": 110
+    },
+    {
+      "id": "challenger",
+      "lane": "decision",
+      "col": 4,
+      "type": "security",
+      "label": "Challenger",
+      "sublabel": "adversarial review",
+      "width": 110
+    },
+    {
+      "id": "risk",
+      "lane": "exec",
+      "col": 4,
+      "type": "security",
+      "label": "Risk Governor",
+      "sublabel": "kill switch/sizing",
+      "width": 110
+    },
+    {
+      "id": "order",
+      "lane": "exec",
+      "col": 5,
+      "type": "backend",
+      "label": "Place Order",
+      "sublabel": "MLEG via MCP/SDK",
+      "width": 110
+    },
+    {
+      "id": "audit",
+      "lane": "persist",
+      "col": 5,
+      "type": "backend",
+      "label": "Write Audit",
+      "sublabel": "cycle JSON",
+      "width": 110
+    }
+  ],
+  "edges": [
+    {
+      "id": "t1",
+      "from": "timer",
+      "to": "agent"
+    },
+    {
+      "id": "t2",
+      "from": "agent",
+      "to": "fetch",
+      "label": "not halted"
+    },
+    {
+      "id": "t3",
+      "from": "fetch",
+      "to": "detect"
+    },
+    {
+      "id": "t4",
+      "from": "detect",
+      "to": "ai",
+      "label": "signal"
+    },
+    {
+      "id": "t5",
+      "from": "ai",
+      "to": "challenger",
+      "label": "proposal"
+    },
+    {
+      "id": "t6",
+      "from": "challenger",
+      "to": "risk",
+      "label": "PASS"
+    },
+    {
+      "id": "t7",
+      "from": "risk",
+      "to": "order",
+      "label": "approved"
+    },
+    {
+      "id": "t8",
+      "from": "order",
+      "to": "audit",
+      "label": "placed"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Detection",
+      "items": [
+        "Fetches 1m/5m/15m bars from Alpaca every cycle",
+        "ICT detectors identify sweeps, FVGs, MSS, S&D"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "AI Double-Check",
+      "items": [
+        "Mock LLM reasons over evidence → TRADE or WAIT",
+        "Adversarial challenger reviews proposal for contradictions"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Safe Execution",
+      "items": [
+        "Deterministic risk governor is final authority",
+        "All fail-closed branches converge to WAIT"
+      ]
+    }
+  ]
+}

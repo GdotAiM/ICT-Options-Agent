@@ -981,6 +981,7 @@ class ICTOptionsAgent:
             write_cycle_audit(
                 mode=self.mode,
                 equity=self.equity,
+                day_start=self.day_starting_equity,
                 halted=self.halted_today,
                 options_level=self.options_level,
                 signals=self._cycle_signals,

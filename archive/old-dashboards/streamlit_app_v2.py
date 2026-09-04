@@ -9,7 +9,6 @@ from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List
 import streamlit as st
 import pandas as pd
-import pytz
 from config import settings
 
 # ── Page config ────────────────────────────────────────────────────────────────
@@ -458,7 +457,7 @@ else:
     day_start = latest.get("day_starting_equity", equity)
     pnl_pct = ((equity - day_start) / day_start * 100) if day_start > 0 else 0
     is_halted = latest.get("halted", False)
-    positions = latest.get("positions_snapshot") or latest.get("positions", [])
+    positions = latest.get("positions_snapshot", [])
     signals = latest.get("signals", [])
     orders = latest.get("orders", [])
     exits = latest.get("exits", [])
@@ -601,7 +600,7 @@ else:
                         "Result": str(o.get("result", ""))[:40],
                     })
                 df_orders = pd.DataFrame(order_rows)
-                st.dataframe(df_orders, width="stretch", hide_index=True)
+                st.dataframe(df_orders, use_container_width=True, hide_index=True)
 
         with col_ext:
             if exits:
@@ -615,7 +614,7 @@ else:
                         "Order": str(e.get("order_id", ""))[:10],
                     })
                 df_exits = pd.DataFrame(exit_rows)
-                st.dataframe(df_exits, width="stretch", hide_index=True)
+                st.dataframe(df_exits, use_container_width=True, hide_index=True)
 
     # ── Cycle History ────────────────────────────────────────────────────
     st.markdown('<div class="section-header"><h2>Cycle History</h2><span class="section-count">' + str(len(cycles)) + ' cycles</span></div>', unsafe_allow_html=True)
@@ -644,7 +643,7 @@ else:
 
     if cycle_rows:
         df_cycles = pd.DataFrame(cycle_rows)
-        st.dataframe(df_cycles, width="stretch", hide_index=True)
+        st.dataframe(df_cycles, use_container_width=True, hide_index=True)
 
     # ── Footer ───────────────────────────────────────────────────────────
     st.markdown(f"""

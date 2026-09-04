@@ -179,6 +179,14 @@ def _make_client():
 
 
 def _call_openai(signal: Dict[str, Any], options_evidence: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
+    # Mock LLM mode — set MOCK_LLM=true in .env to bypass OpenAI
+    if os.getenv("MOCK_LLM", "false").lower() == "true":
+        try:
+            from src import mock_llm
+            return mock_llm.call_openai(signal, options_evidence)
+        except Exception as e:
+            logger.warning(f"Mock ICT agent error: {e}")
+            return None
     api_key = os.getenv("OPENAI_API_KEY") or os.getenv("LLM_API_KEY")
     if not api_key:
         return None
@@ -256,6 +264,13 @@ Use only supplied evidence. Use the supplied live chain to reason about DTE, mon
 
 def _challenge_openai(signal: Dict[str, Any], proposal: Dict[str, Any], options_evidence: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
     """Adversarial second-pass reviewer: try to disprove the proposed trade."""
+    if os.getenv("MOCK_LLM", "false").lower() == "true":
+        try:
+            from src import mock_llm
+            return mock_llm.call_challenge_openai(signal, proposal, options_evidence)
+        except Exception as e:
+            logger.warning(f"Mock challenger error: {e}")
+            return None
     api_key = os.getenv("OPENAI_API_KEY") or os.getenv("LLM_API_KEY")
     if not api_key:
         return None
@@ -375,6 +390,13 @@ def run_ict_agent(signal: Dict[str, Any], require_llm: bool = False, options_evi
 
 def _call_rth_openai(rth_state: Dict[str, Any], options_evidence: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
     """Call the LLM with an RTH market state packet."""
+    if os.getenv("MOCK_LLM", "false").lower() == "true":
+        try:
+            from src import mock_llm
+            return mock_llm.call_rth_openai(rth_state, options_evidence)
+        except Exception as e:
+            logger.warning(f"Mock RTH agent error: {e}")
+            return None
     api_key = os.getenv("OPENAI_API_KEY") or os.getenv("LLM_API_KEY")
     if not api_key:
         return None
@@ -586,6 +608,13 @@ def _challenge_rth_openai(
     options_evidence: Optional[Dict[str, Any]] = None,
 ) -> Optional[Dict[str, Any]]:
     """Adversarial reviewer for RTH thesis."""
+    if os.getenv("MOCK_LLM", "false").lower() == "true":
+        try:
+            from src import mock_llm
+            return mock_llm.call_rth_challenge(rth_state, proposal, options_evidence)
+        except Exception as e:
+            logger.warning(f"Mock RTH challenger error: {e}")
+            return None
     api_key = os.getenv("OPENAI_API_KEY") or os.getenv("LLM_API_KEY")
     if not api_key:
         return None
@@ -633,15 +662,14 @@ PROPOSAL:
 
 
 def reassess_open_position(context: Dict[str, Any], position: Dict[str, Any], require_llm: bool = False) -> Dict[str, Any]:
-    """AI post-trade monitor: reassess the original ICT thesis against live position state.
-
-    HOLD is the safe default action whenever the monitor can't run — deterministic
-    exits (stop/target/DTE) remain authoritative regardless of this verdict, so
-    HOLD never bypasses a risk control. The verdict is always reported as
-    UNAVAILABLE in that case (not conditionally on require_llm) so the audit
-    trail consistently distinguishes "monitor ran and said hold" from
-    "monitor didn't run at all", the same way it does for a caught exception.
-    """
+    """AI post-trade monitor: reassess the original ICT thesis against live position state."""
+    if os.getenv("MOCK_LLM", "false").lower() == "true":
+        try:
+            from src import mock_llm
+            return mock_llm.reassess_position(context, position)
+        except Exception as e:
+            logger.warning(f"Mock reassess error: {e}")
+            return {"verdict": "UNAVAILABLE", "action": "HOLD", "reason": str(e), "source": "mock_post_trade"}
     api_key = os.getenv("OPENAI_API_KEY") or os.getenv("LLM_API_KEY")
     if not api_key:
         return {"verdict": "UNAVAILABLE", "action": "HOLD", "reason": "LLM unavailable"}

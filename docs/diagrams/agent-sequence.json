@@ -1,0 +1,258 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "Single Trading Cycle",
+    "output": "docs/diagrams/agent-sequence.html",
+    "quality_profile": "showcase",
+    "column_fit": "spread",
+    "viewBox": [
+      1200,
+      850
+    ]
+  },
+  "participants": [
+    {
+      "id": "timer",
+      "type": "external",
+      "label": "Timer",
+      "sublabel": "5-min interval"
+    },
+    {
+      "id": "agent",
+      "type": "backend",
+      "label": "Agent Core",
+      "sublabel": "agent.py"
+    },
+    {
+      "id": "alpaca",
+      "type": "external",
+      "label": "Alpaca API",
+      "sublabel": "paper trading"
+    },
+    {
+      "id": "rth",
+      "type": "backend",
+      "label": "RTH Engine",
+      "sublabel": "rth_engine.py"
+    },
+    {
+      "id": "detectors",
+      "type": "backend",
+      "label": "ICT Detectors",
+      "sublabel": "patterns"
+    },
+    {
+      "id": "llm",
+      "type": "backend",
+      "label": "LLM Agent",
+      "sublabel": "llm_agent.py"
+    },
+    {
+      "id": "mock",
+      "type": "backend",
+      "label": "Mock LLM",
+      "sublabel": "mock_llm.py"
+    },
+    {
+      "id": "challenge",
+      "type": "security",
+      "label": "Challenger",
+      "sublabel": "adversarial"
+    },
+    {
+      "id": "risk",
+      "type": "security",
+      "label": "Risk Governor",
+      "sublabel": "risk.py"
+    },
+    {
+      "id": "db",
+      "type": "database",
+      "label": "SQLite",
+      "sublabel": "state store"
+    }
+  ],
+  "segments": [
+    {
+      "from": 100,
+      "to": 200,
+      "label": "Init"
+    },
+    {
+      "from": 200,
+      "to": 320,
+      "label": "Detection"
+    },
+    {
+      "from": 320,
+      "to": 440,
+      "label": "AI Decision"
+    },
+    {
+      "from": 440,
+      "to": 560,
+      "label": "Execute"
+    }
+  ],
+  "messages": [
+    {
+      "from": "timer",
+      "to": "agent",
+      "y": 170,
+      "label": "tick()"
+    },
+    {
+      "from": "agent",
+      "to": "alpaca",
+      "y": 200,
+      "label": "get_account()"
+    },
+    {
+      "from": "alpaca",
+      "to": "agent",
+      "y": 230,
+      "label": "$100,085.80"
+    },
+    {
+      "from": "agent",
+      "to": "alpaca",
+      "y": 260,
+      "label": "get_stock_bars()"
+    },
+    {
+      "from": "alpaca",
+      "to": "agent",
+      "y": 290,
+      "label": "DataFrame"
+    },
+    {
+      "from": "agent",
+      "to": "rth",
+      "y": 320,
+      "label": "build_rth_state()"
+    },
+    {
+      "from": "rth",
+      "to": "agent",
+      "y": 350,
+      "label": "RTHState(bull,0.72)"
+    },
+    {
+      "from": "agent",
+      "to": "detectors",
+      "y": 380,
+      "label": "generate_ict_signal()"
+    },
+    {
+      "from": "detectors",
+      "to": "agent",
+      "y": 410,
+      "label": "Signal(sweep,MSS)"
+    },
+    {
+      "from": "agent",
+      "to": "llm",
+      "y": 440,
+      "label": "run_rth_agent(state,evidence)"
+    },
+    {
+      "from": "llm",
+      "to": "mock",
+      "y": 470,
+      "label": "MOCK_LLM=true"
+    },
+    {
+      "from": "mock",
+      "to": "llm",
+      "y": 500,
+      "label": "TRADE/bull/BULL_CALL_SPREAD"
+    },
+    {
+      "from": "llm",
+      "to": "challenge",
+      "y": 530,
+      "label": "_challenge_openai()"
+    },
+    {
+      "from": "challenge",
+      "to": "llm",
+      "y": 560,
+      "label": "{verdict: PASS}"
+    },
+    {
+      "from": "llm",
+      "to": "agent",
+      "y": 590,
+      "label": "Decision(TRADE,approve=true)"
+    },
+    {
+      "from": "agent",
+      "to": "risk",
+      "y": 620,
+      "label": "can_add_risk(positions,equity)"
+    },
+    {
+      "from": "risk",
+      "to": "agent",
+      "y": 650,
+      "label": "(ok=true, remaining=85%)"
+    },
+    {
+      "from": "agent",
+      "to": "alpaca",
+      "y": 680,
+      "label": "submit_order(MLEG,qty=2)"
+    },
+    {
+      "from": "alpaca",
+      "to": "agent",
+      "y": 710,
+      "label": "Order(ord_xxx,pending)"
+    },
+    {
+      "from": "agent",
+      "to": "db",
+      "y": 740,
+      "label": "write_cycle_audit(signals,orders)"
+    },
+    {
+      "from": "db",
+      "to": "agent",
+      "y": 770,
+      "label": "cycle_*.json"
+    },
+    {
+      "from": "agent",
+      "to": "timer",
+      "y": 800,
+      "label": "cycle complete"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Data Pipeline",
+      "items": [
+        "RTH engine builds market state from bars",
+        "ICT detectors extract sweeps/FVGs/MSS"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "AI Double-Check",
+      "items": [
+        "Mock LLM reasons over evidence -> TRADE/WAIT",
+        "Adversarial challenger reviews thesis"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Safe Execution",
+      "items": [
+        "Deterministic risk governor is final authority",
+        "Idempotent orders prevent duplicate fills"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,211 @@
+{
+  "schema_version": 1,
+  "diagram_type": "dataflow",
+  "meta": {
+    "title": "Market Data to Trade Pipeline",
+    "output": "agent-dataflow.html",
+    "quality_profile": "standard",
+    "viewBox": [
+      1400,
+      500
+    ]
+  },
+  "stages": [
+    {
+      "label": "Sources"
+    },
+    {
+      "label": "Ingest"
+    },
+    {
+      "label": "Process"
+    },
+    {
+      "label": "Decide"
+    },
+    {
+      "label": "Execute"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "tape",
+      "type": "external",
+      "label": "Alpaca Tape",
+      "sublabel": "stock bars",
+      "stage": 0,
+      "row": 0,
+      "width": 120
+    },
+    {
+      "id": "chain",
+      "type": "external",
+      "label": "Options Chain",
+      "sublabel": "contracts",
+      "stage": 0,
+      "row": 1,
+      "width": 120
+    },
+    {
+      "id": "resampler",
+      "type": "backend",
+      "label": "Bar Resampler",
+      "sublabel": "1m→5m/15m",
+      "stage": 1,
+      "row": 0,
+      "width": 120
+    },
+    {
+      "id": "rth",
+      "type": "backend",
+      "label": "RTH Engine",
+      "sublabel": "session state",
+      "stage": 1,
+      "row": 1,
+      "width": 120
+    },
+    {
+      "id": "detectors",
+      "type": "backend",
+      "label": "ICT Detectors",
+      "sublabel": "sweeps/FVG/MSS",
+      "stage": 2,
+      "row": 0,
+      "width": 120
+    },
+    {
+      "id": "llm",
+      "type": "backend",
+      "label": "Mock LLM",
+      "sublabel": "TRADE/WAIT",
+      "stage": 2,
+      "row": 1,
+      "width": 120
+    },
+    {
+      "id": "challenger",
+      "type": "security",
+      "label": "Challenger",
+      "sublabel": "review",
+      "stage": 3,
+      "row": 0,
+      "width": 120
+    },
+    {
+      "id": "risk",
+      "type": "security",
+      "label": "Risk Governor",
+      "sublabel": "kill switch",
+      "stage": 3,
+      "row": 1,
+      "width": 120
+    },
+    {
+      "id": "order",
+      "type": "backend",
+      "label": "Order Placer",
+      "sublabel": "MLEG",
+      "stage": 4,
+      "row": 0,
+      "width": 120
+    },
+    {
+      "id": "db",
+      "type": "database",
+      "label": "SQLite",
+      "sublabel": "state",
+      "stage": 4,
+      "row": 1,
+      "width": 120
+    }
+  ],
+  "flows": [
+    {
+      "from": "tape",
+      "to": "resampler",
+      "label": "bars"
+    },
+    {
+      "from": "chain",
+      "to": "rth",
+      "label": "chain data"
+    },
+    {
+      "from": "resampler",
+      "to": "detectors",
+      "label": "multi-TF"
+    },
+    {
+      "from": "rth",
+      "to": "llm",
+      "label": "state"
+    },
+    {
+      "from": "detectors",
+      "to": "llm",
+      "label": "evidence",
+      "labelAt": [
+        530,
+        200
+      ]
+    },
+    {
+      "from": "llm",
+      "to": "challenger",
+      "label": "proposal"
+    },
+    {
+      "from": "llm",
+      "to": "risk",
+      "label": "decision"
+    },
+    {
+      "from": "challenger",
+      "to": "risk",
+      "label": "verdict",
+      "labelAt": [
+        745,
+        200
+      ]
+    },
+    {
+      "from": "risk",
+      "to": "order",
+      "label": "approved"
+    },
+    {
+      "from": "order",
+      "to": "db",
+      "label": "record",
+      "labelAt": [
+        960,
+        200
+      ]
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Data Sources",
+      "items": [
+        "Alpaca REST provides stock bars and option chain data"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Processing",
+      "items": [
+        "RTH engine + ICT detectors extract signals",
+        "Mock LLM converts evidence to TRADE/WAIT"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Execution",
+      "items": [
+        "Adversarial review + risk governor enforce safety",
+        "MLEG order routed with idempotency guard"
+      ]
+    }
+  ]
+}

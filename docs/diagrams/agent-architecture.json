@@ -1,0 +1,296 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "ICT Options Agent",
+    "output": "docs/diagrams/agent-architecture.html",
+    "quality_profile": "showcase"
+  },
+  "components": [
+    {
+      "id": "cli",
+      "type": "backend",
+      "label": "CLI",
+      "sublabel": "main.py",
+      "pos": [
+        40,
+        60
+      ],
+      "size": [
+        100,
+        50
+      ]
+    },
+    {
+      "id": "agent",
+      "type": "backend",
+      "label": "Agent",
+      "sublabel": "agent.py",
+      "pos": [
+        180,
+        60
+      ],
+      "size": [
+        100,
+        50
+      ]
+    },
+    {
+      "id": "rth",
+      "type": "backend",
+      "label": "RTH Engine",
+      "sublabel": "session state",
+      "pos": [
+        180,
+        160
+      ],
+      "size": [
+        100,
+        50
+      ]
+    },
+    {
+      "id": "detectors",
+      "type": "backend",
+      "label": "ICT Detectors",
+      "sublabel": "sweeps/FVG/MSS",
+      "pos": [
+        180,
+        260
+      ],
+      "size": [
+        100,
+        50
+      ]
+    },
+    {
+      "id": "llm",
+      "type": "backend",
+      "label": "LLM Agent",
+      "sublabel": "llm_agent.py",
+      "pos": [
+        320,
+        60
+      ],
+      "size": [
+        100,
+        50
+      ]
+    },
+    {
+      "id": "mock",
+      "type": "backend",
+      "label": "Mock LLM",
+      "sublabel": "mock_llm.py",
+      "pos": [
+        320,
+        160
+      ],
+      "size": [
+        100,
+        50
+      ]
+    },
+    {
+      "id": "chain",
+      "type": "backend",
+      "label": "Options Chain",
+      "sublabel": "chain_agent.py",
+      "pos": [
+        320,
+        260
+      ],
+      "size": [
+        100,
+        50
+      ]
+    },
+    {
+      "id": "risk",
+      "type": "security",
+      "label": "Risk Governor",
+      "sublabel": "kill switch/sizing",
+      "pos": [
+        460,
+        60
+      ],
+      "size": [
+        100,
+        50
+      ]
+    },
+    {
+      "id": "order",
+      "type": "backend",
+      "label": "Order Exec",
+      "sublabel": "mcp_exec.py",
+      "pos": [
+        460,
+        160
+      ],
+      "size": [
+        100,
+        50
+      ]
+    },
+    {
+      "id": "alpaca",
+      "type": "external",
+      "label": "Alpaca API",
+      "sublabel": "paper trading",
+      "pos": [
+        460,
+        260
+      ],
+      "size": [
+        100,
+        50
+      ]
+    },
+    {
+      "id": "db",
+      "type": "database",
+      "label": "SQLite",
+      "sublabel": "state store",
+      "pos": [
+        600,
+        60
+      ],
+      "size": [
+        100,
+        50
+      ]
+    },
+    {
+      "id": "audit",
+      "type": "backend",
+      "label": "Audit",
+      "sublabel": "JSON logs",
+      "pos": [
+        600,
+        160
+      ],
+      "size": [
+        100,
+        50
+      ]
+    },
+    {
+      "id": "dashboard",
+      "type": "frontend",
+      "label": "Dashboard",
+      "sublabel": "Streamlit :8503",
+      "pos": [
+        600,
+        260
+      ],
+      "size": [
+        100,
+        50
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "from": "cli",
+      "to": "agent"
+    },
+    {
+      "from": "agent",
+      "to": "rth"
+    },
+    {
+      "from": "rth",
+      "to": "detectors"
+    },
+    {
+      "from": "detectors",
+      "to": "llm"
+    },
+    {
+      "from": "llm",
+      "to": "mock"
+    },
+    {
+      "from": "llm",
+      "to": "chain"
+    },
+    {
+      "from": "agent",
+      "to": "risk"
+    },
+    {
+      "from": "risk",
+      "to": "order"
+    },
+    {
+      "from": "order",
+      "to": "alpaca"
+    },
+    {
+      "from": "order",
+      "to": "db"
+    },
+    {
+      "from": "agent",
+      "to": "audit"
+    },
+    {
+      "from": "audit",
+      "to": "dashboard"
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "Local Process",
+      "wraps": [
+        "cli",
+        "agent",
+        "rth",
+        "detectors",
+        "llm",
+        "mock",
+        "chain",
+        "risk",
+        "order"
+      ]
+    },
+    {
+      "kind": "security-group",
+      "label": "Trust Boundary",
+      "wraps": [
+        "alpaca",
+        "db",
+        "audit",
+        "dashboard"
+      ]
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Detection",
+      "items": [
+        "RTH engine classifies session from bars",
+        "ICT detectors find sweeps/FVGs/MSS/S&D"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "AI Reasoning",
+      "items": [
+        "Mock LLM reads ICT evidence for TRADE/WAIT",
+        "Adversarial challenger reviews proposals"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Execution",
+      "items": [
+        "Deterministic risk governor is final authority",
+        "MLEG order with idempotency guard"
+      ]
+    }
+  ]
+}

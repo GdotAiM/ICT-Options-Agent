@@ -27,6 +27,7 @@ def write_cycle_audit(
     orders: List[Dict[str, Any]],
     exits: List[Dict[str, Any]],
     positions_snapshot: List[Dict[str, Any]],
+    day_start: Optional[float] = None,
     extra: Optional[Dict[str, Any]] = None,
 ) -> Path:
     """
@@ -37,12 +38,13 @@ def write_cycle_audit(
         "ts_utc": datetime.now(timezone.utc).isoformat(),
         "mode": mode,
         "equity": equity,
+        "day_starting_equity": day_start,
         "halted": halted,
         "options_level": options_level,
         "signals": signals,
         "orders": orders,
         "exits": exits,
-        "positions": positions_snapshot,
+        "positions_snapshot": positions_snapshot,
         "extra": extra or {},
     }
     path = Path(settings.AUDIT_DIR) / f"cycle_{_ts()}.json"
