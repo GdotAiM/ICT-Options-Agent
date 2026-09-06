@@ -29,5 +29,6 @@ ENV PYTHONUNBUFFERED=1
 ENV STREAMLIT_SERVER_HEADLESS=true
 ENV STREAMLIT_SERVER_PORT=8501
 
-# Start commands (override with docker run -e)
-CMD ["python", "fastapi_server.py"]
+# Start command — Railway sets $PORT; default to 8000
+ENV PORT=8000
+CMD ["gunicorn", "fastapi_server:app", "--bind", "0.0.0.0:$PORT", "--workers", "1", "--timeout", "120"]
