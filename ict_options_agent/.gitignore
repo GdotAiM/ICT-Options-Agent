@@ -34,7 +34,7 @@ data/*.db
 data/*.db-journal
 logs/*.log
 logs/audit/
-logs/telemetry/events.jsonl
+logs/telemetry/
 
 # IDE
 .idea/
