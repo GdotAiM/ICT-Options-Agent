@@ -185,3 +185,37 @@ def iron_condor_credit(
     call_credit = mids[short_call] - mids[long_call]
     total_credit = put_credit + call_credit
     return max(0.0, total_credit), mids, ""
+
+
+# ── Telemetry wrapper ───────────────────────────────────────────────
+
+def evaluate_quote_telemetrized(
+    quote,
+    signal_hash: str = "",
+    symbol_hint: str = "",
+    max_spread_pct: float = None,
+    max_age_seconds: float = None,
+) -> tuple:
+    """Call evaluate_quote then emit telemetry. Returns (ok, mid, reason)."""
+    ok, mid, reason = evaluate_quote(quote, max_spread_pct, max_age_seconds)
+    try:
+        bid_raw = _field(quote, "bid_price", "bp")
+        ask_raw = _field(quote, "ask_price", "ap")
+        bid = float(bid_raw) if bid_raw is not None else 0.0
+        ask = float(ask_raw) if ask_raw is not None else 0.0
+        if bid > 0 and ask > 0:
+            m = (bid + ask) / 2.0
+            sp = (ask - bid) / m if m > 0 else 1.0
+        elif ask > 0:
+            m = ask; sp = 0.0
+        else:
+            m = bid; sp = 0.0
+        age = quote_age_seconds(quote)
+        sym = symbol_hint or ""
+        telemetry.logger.quote_eval(
+            signal_hash, symbol=sym, bid=bid, ask=ask, mid=m,
+            spread_pct=sp, age_seconds=age, quote_ok=ok, reason=reason,
+        )
+    except Exception:
+        pass  # never let telemetry break trading
+    return ok, mid, reason

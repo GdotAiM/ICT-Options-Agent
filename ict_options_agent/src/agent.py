@@ -39,6 +39,7 @@ from src.audit import write_cycle_audit, summarize_signal_for_audit
 from src.status import print_status
 from src.utils import now_et
 from src import state_store
+from src import telemetry
 from src.rth_engine import build_rth_state, is_rth, get_session_phase
 import json
 
@@ -701,6 +702,8 @@ class ICTOptionsAgent:
                     for p in open_legs:
                         sym = getattr(p, "symbol", "")
                         if sym not in closed:
+                            telemetry.logger.exit_triggered(sh, position_symbol=sym,
+                                reason="AI post-trade reassessment EXIT", trigger="ai_reassess_exit")
                             self._close_position_single(p, "ai_post_trade_exit")
 
         # Re-check kill switch every cycle
@@ -710,6 +713,8 @@ class ICTOptionsAgent:
                 state_store.set_halted(reason)
                 self.halted_today = True
                 logger.error(f"Kill switch engaged: {reason}")
+                telemetry.logger.exit_triggered("", position_symbol="*portfolio*",
+                    reason=reason, trigger="kill_switch")
                 if settings.FLATTEN_ON_KILL_SWITCH:
                     pos_map = {getattr(p, "symbol", ""): p for p in positions}
                     grouped = self._try_grouped_close(pos_map, f"kill_switch: {reason}")
@@ -739,7 +744,7 @@ class ICTOptionsAgent:
         # Build map of symbols that should exit
         to_exit = {}
         for pos in positions:
-            should, why = should_close_position(pos)
+            should, why = should_close_position(pos, signal_hash="")
             if should:
                 to_exit[getattr(pos, "symbol", "")] = (pos, why)
 
@@ -964,6 +969,22 @@ class ICTOptionsAgent:
 
     def _write_audit_and_status(self):
         """Persist cycle audit JSON and print a terminal status snapshot."""
+        # Emit cycle-level telemetry summary
+        try:
+            telemetry.logger.cycle_complete(
+                equity=self.equity,
+                day_start_equity=self.day_starting_equity,
+                halted=self.halted_today,
+                signals_seen=len(self._cycle_signals),
+                trades_fired=len(self._cycle_orders),
+                exits_triggered=len(self._cycle_exits),
+                llm_calls_made=0,   # counted inside llm_agent
+                llm_failures=0,      # counted inside llm_agent
+                quote_checks=0,      # counted inside quotes.py wrapper
+                quote_rejections=0,  # counted inside quotes.py wrapper
+            )
+        except Exception:
+            pass
         try:
             positions = self.trade_client.get_all_positions()
         except Exception:

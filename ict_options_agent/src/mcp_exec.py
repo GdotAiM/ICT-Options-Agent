@@ -14,11 +14,13 @@ Official server: uvx alpaca-mcp-server
 """
 from __future__ import annotations
 import os
+import time
 import json
 import asyncio
 import subprocess
 from typing import Optional, Dict, Any, List
 from loguru import logger
+from src import telemetry
 
 USE_MCP = os.getenv("USE_MCP", "false").lower() == "true"
 USE_CLI = os.getenv("USE_ALPACA_CLI", "false").lower() == "true"
@@ -185,6 +187,7 @@ def execute_options_order(
     limit_price: Optional[float] = None,
     sdk_fallback_fn=None,
     client_order_id: Optional[str] = None,
+    signal_hash: str = "",
 ) -> Any:
     """
     Unified entry used by agent._place_mleg.
@@ -192,20 +195,55 @@ def execute_options_order(
     client_order_id is threaded through every path so retries/restarts are
     idempotent at the broker level, not just in our local state store.
     """
-    if USE_MCP:
-        return place_option_mleg_via_mcp(
-            legs, qty, limit_price, sdk_fallback_fn=sdk_fallback_fn,
+    t0 = time.monotonic()
+    try:
+        if USE_MCP:
+            result = place_option_mleg_via_mcp(
+                legs, qty, limit_price, sdk_fallback_fn=sdk_fallback_fn,
+                client_order_id=client_order_id,
+            )
+            latency = (time.monotonic() - t0) * 1000
+            telemetry.logger.order_event(
+                signal_hash, event_type="placed",
+                client_order_id=client_order_id,
+                path="mcp", qty=qty, latency_ms=latency,
+                status="submitted",
+            )
+            return result
+        if USE_CLI:
+            result = place_option_mleg_via_cli(
+                legs, qty, limit_price, sdk_fallback_fn=sdk_fallback_fn,
+                client_order_id=client_order_id,
+            )
+            latency = (time.monotonic() - t0) * 1000
+            telemetry.logger.order_event(
+                signal_hash, event_type="placed",
+                client_order_id=client_order_id,
+                path="cli", qty=qty, latency_ms=latency,
+                status="submitted",
+            )
+            return result
+        if sdk_fallback_fn is not None:
+            logger.info("[SDK] placing order via alpaca-py TradingClient")
+            result = sdk_fallback_fn(legs, qty, limit_price, client_order_id=client_order_id)
+            latency = (time.monotonic() - t0) * 1000
+            telemetry.logger.order_event(
+                signal_hash, event_type="placed",
+                client_order_id=client_order_id,
+                path="sdk", qty=qty, latency_ms=latency,
+                status="submitted",
+            )
+            return result
+        raise RuntimeError("No execution path available (MCP/CLI/SDK)")
+    except Exception as e:
+        latency = (time.monotonic() - t0) * 1000
+        telemetry.logger.order_event(
+            signal_hash, event_type="placed",
             client_order_id=client_order_id,
+            latency_ms=latency, status="failed",
+            error_message=str(e)[:200],
         )
-    if USE_CLI:
-        return place_option_mleg_via_cli(
-            legs, qty, limit_price, sdk_fallback_fn=sdk_fallback_fn,
-            client_order_id=client_order_id,
-        )
-    if sdk_fallback_fn is not None:
-        logger.info("[SDK] placing order via alpaca-py TradingClient")
-        return sdk_fallback_fn(legs, qty, limit_price, client_order_id=client_order_id)
-    raise RuntimeError("No execution path available (MCP/CLI/SDK)")
+        raise
 
 
 async def _verify_mcp_async() -> Dict[str, Any]:

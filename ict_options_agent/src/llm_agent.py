@@ -9,9 +9,11 @@ for risk, sizing, liquidity, options approval and execution.
 from __future__ import annotations
 
 import json
+import time
 import os
 from typing import Any, Dict, Optional
 from loguru import logger
+from src import telemetry
 
 
 SYSTEM_PROMPT = """
@@ -219,21 +221,43 @@ Return exactly this JSON schema:
 
 Use only supplied evidence. Use the supplied live chain to reason about DTE, moneyness, liquidity and quote quality. Do not invent exact option strikes, premiums or Greeks.
 """
-        response = client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_prompt},
-            ],
-            temperature=0.05,
-            max_tokens=700,
-            response_format={"type": "json_object"},
-        )
-        raw = response.choices[0].message.content or "{}"
-        data = json.loads(raw)
-        data["source"] = "openai_ict_agent"
-        data["model"] = model
-        return data
+        t0 = time.monotonic()
+        try:
+            response = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": user_prompt},
+                ],
+                temperature=0.05,
+                max_tokens=700,
+                response_format={"type": "json_object"},
+            )
+            raw = response.choices[0].message.content or "{}"
+            data = json.loads(raw)
+            data["source"] = "openai_ict_agent"
+            data["model"] = model
+            # Telemetry
+            usage = getattr(response, "usage", None)
+            telemetry.logger.llm_call(
+                signal.get("signal_hash", ""),
+                role="primary", model=model,
+                provider=os.getenv("LLM_PROVIDER", "openai"),
+                latency_ms=(time.monotonic() - t0) * 1000,
+                status="ok",
+                input_tokens=getattr(usage, "prompt_tokens", None),
+                output_tokens=getattr(usage, "completion_tokens", None),
+            )
+            return data
+        except Exception as e:
+            telemetry.logger.llm_call(
+                signal.get("signal_hash", ""),
+                role="primary", model=model,
+                provider=os.getenv("LLM_PROVIDER", "openai"),
+                latency_ms=(time.monotonic() - t0) * 1000,
+                status="error", error_message=str(e)[:200],
+            )
+            raise
     except TypeError:
         # Older OpenAI SDKs may not support response_format in the same way.
         try:
@@ -253,11 +277,35 @@ Use only supplied evidence. Use the supplied live chain to reason about DTE, mon
             data = json.loads(text[start:end])
             data["source"] = "openai_ict_agent"
             data["model"] = model
+            usage = getattr(response, "usage", None)
+            telemetry.logger.llm_call(
+                signal.get("signal_hash", ""),
+                role="primary", model=model,
+                provider=os.getenv("LLM_PROVIDER", "openai"),
+                latency_ms=(time.monotonic() - t0) * 1000,
+                status="ok",
+                input_tokens=getattr(usage, "prompt_tokens", None),
+                output_tokens=getattr(usage, "completion_tokens", None),
+            )
             return data
         except Exception as e:
+            telemetry.logger.llm_call(
+                signal.get("signal_hash", ""),
+                role="primary", model=model,
+                provider=os.getenv("LLM_PROVIDER", "openai"),
+                latency_ms=(time.monotonic() - t0) * 1000,
+                status="error", error_message=str(e)[:200],
+            )
             logger.warning(f"ICT LLM agent unavailable: {e}")
             return None
     except Exception as e:
+        telemetry.logger.llm_call(
+            signal.get("signal_hash", ""),
+            role="primary", model=model,
+            provider=os.getenv("LLM_PROVIDER", "openai"),
+            latency_ms=(time.monotonic() - t0) * 1000,
+            status="error", error_message=str(e)[:200],
+        )
         logger.warning(f"ICT LLM agent unavailable: {e}")
         return None
 

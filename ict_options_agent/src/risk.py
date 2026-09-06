@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Any, Optional, Tuple
 from loguru import logger
+from src import telemetry
 from config.settings import (
     RISK_PCT,
     MAX_CONTRACTS_PER_TRADE,
@@ -100,6 +101,7 @@ def should_close_position(
     stop_loss_pct: float = STOP_LOSS_PCT,
     max_dte_to_hold: int = MAX_DTE_TO_HOLD,
     today: Optional[date] = None,
+    signal_hash: str = "",
 ) -> Tuple[bool, str]:
     """
     Deterministic exit decision for a single Alpaca Position (or duck-typed
@@ -120,6 +122,7 @@ def should_close_position(
     # --- DTE gate ---
     dte = days_to_expiration(symbol, today=today)
     if dte is not None and dte <= max_dte_to_hold:
+        _log_exit(signal_hash, symbol, f"DTE={dte}", "max_dte", dte_remaining=dte)
         return True, f"DTE={dte} <= max_hold={max_dte_to_hold}"
 
     # --- P&L gates (unrealized_plpc is already a fraction, e.g. 0.42 = +42%) ---
@@ -129,11 +132,27 @@ def should_close_position(
         plpc = 0.0
 
     if plpc >= profit_target_pct:
+        _log_exit(signal_hash, symbol, f"profit target hit ({plpc:.1%})", "profit_target", dte_remaining=dte, pl_pct=plpc)
         return True, f"profit target hit ({plpc:.1%} >= {profit_target_pct:.0%})"
     if plpc <= stop_loss_pct:
+        _log_exit(signal_hash, symbol, f"stop loss hit ({plpc:.1%})", "stop_loss", dte_remaining=dte, pl_pct=plpc)
         return True, f"stop loss hit ({plpc:.1%} <= {stop_loss_pct:.0%})"
 
     return False, ""
+
+
+def _log_exit(signal_hash: str, symbol: str, reason: str, trigger: str, *, dte_remaining=None, pl_pct=0.0) -> None:
+    """Emit telemetry for an exit decision."""
+    if not signal_hash:
+        return
+    try:
+        from src import telemetry
+        telemetry.logger.exit_triggered(
+            signal_hash, position_symbol=symbol, reason=reason,
+            trigger=trigger, pl_pct=pl_pct, dte_remaining=dte,
+        )
+    except Exception:
+        pass
 
 
 def estimate_position_risk_dollars(pos) -> float:

@@ -238,6 +238,60 @@ def init_ai_tables() -> None:
             )
         """)
         conn.commit()
+        # ── Telemetry tables ─────────────────────────────────────────
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS llm_calls (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                signal_hash TEXT NOT NULL,
+                role TEXT NOT NULL,
+                model TEXT NOT NULL,
+                provider TEXT NOT NULL,
+                latency_ms REAL NOT NULL,
+                status TEXT NOT NULL,
+                input_tokens INTEGER,
+                output_tokens INTEGER,
+                error_message TEXT,
+                cost_usd REAL,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS quote_snapshots (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                signal_hash TEXT NOT NULL,
+                symbol TEXT NOT NULL,
+                bid REAL NOT NULL,
+                ask REAL NOT NULL,
+                mid REAL NOT NULL,
+                spread_pct REAL NOT NULL,
+                age_seconds REAL,
+                quote_ok INTEGER NOT NULL,
+                reason TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS order_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                signal_hash TEXT NOT NULL,
+                client_order_id TEXT,
+                broker_order_id TEXT,
+                event_type TEXT NOT NULL,
+                path TEXT,
+                leg_symbol TEXT,
+                side TEXT,
+                qty INTEGER,
+                price REAL,
+                latency_ms REAL,
+                status TEXT,
+                error_message TEXT,
+                trigger TEXT,
+                pl_pct REAL,
+                dte_remaining INTEGER,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        conn.commit()
 
 
 def record_ai_context(signal_hash: str, context: Dict[str, Any]) -> None:
@@ -325,3 +379,138 @@ def recent_research_memory(limit: int = 12) -> List[Dict[str, Any]]:
                 except Exception: pass
         out.append(d)
     return out
+
+
+
+# ── Telemetry accessors ─────────────────────────────────────────────
+
+def record_llm_call(
+    signal_hash: str,
+    role: str,
+    model: str,
+    provider: str,
+    latency_ms: float,
+    status: str,
+    input_tokens: Optional[int] = None,
+    output_tokens: Optional[int] = None,
+    error_message: Optional[str] = None,
+    cost_usd: Optional[float] = None,
+) -> None:
+    with _lock, _conn() as conn:
+        conn.execute(
+            """INSERT INTO llm_calls
+               (signal_hash, role, model, provider, latency_ms, status,
+                input_tokens, output_tokens, error_message, cost_usd)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (signal_hash, role, model, provider, latency_ms, status,
+             input_tokens, output_tokens, error_message, cost_usd),
+        )
+        conn.commit()
+
+
+def record_quote_snapshot(
+    signal_hash: str,
+    symbol: str,
+    bid: float,
+    ask: float,
+    mid: float,
+    spread_pct: float,
+    age_seconds: Optional[float],
+    quote_ok: bool,
+    reason: str = "",
+) -> None:
+    with _lock, _conn() as conn:
+        conn.execute(
+            """INSERT INTO quote_snapshots
+               (signal_hash, symbol, bid, ask, mid, spread_pct,
+                age_seconds, quote_ok, reason)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (signal_hash, symbol, bid, ask, mid, spread_pct,
+             age_seconds, int(quote_ok), reason),
+        )
+        conn.commit()
+
+
+def record_order_event(
+    signal_hash: str,
+    *,
+    event_type: str,
+    client_order_id: Optional[str] = None,
+    broker_order_id: Optional[str] = None,
+    path: Optional[str] = None,
+    leg_symbol: Optional[str] = None,
+    side: Optional[str] = None,
+    qty: Optional[int] = None,
+    price: Optional[float] = None,
+    latency_ms: Optional[float] = None,
+    status: Optional[str] = None,
+    error_message: Optional[str] = None,
+    trigger: Optional[str] = None,
+    pl_pct: Optional[float] = None,
+    dte_remaining: Optional[int] = None,
+) -> None:
+    with _lock, _conn() as conn:
+        conn.execute(
+            """INSERT INTO order_events
+               (signal_hash, client_order_id, broker_order_id, event_type,
+                path, leg_symbol, side, qty, price, latency_ms,
+                status, error_message, trigger, pl_pct, dte_remaining)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (signal_hash, client_order_id, broker_order_id, event_type,
+             path, leg_symbol, side, qty, price, latency_ms,
+             status, error_message, trigger, pl_pct, dte_remaining),
+        )
+        conn.commit()
+
+
+def get_telemetry_summary(days: int = 7) -> Dict[str, Any]:
+    """Aggregate telemetry for the last N days — useful for dashboards."""
+    from datetime import timedelta
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    with _lock, _conn() as conn:
+        rows = conn.execute(
+            "SELECT COUNT(*) FROM llm_calls WHERE created_at >= ?", (cutoff,)
+        ).fetchone()
+        llm_total = rows[0]
+        rows = conn.execute(
+            "SELECT COUNT(*) FROM llm_calls WHERE created_at >= ? AND status='ok'",
+            (cutoff,),
+        ).fetchone()
+        llm_ok = rows[0]
+        rows = conn.execute(
+            "SELECT COUNT(*) FROM llm_calls WHERE created_at >= ? AND status!='ok'",
+            (cutoff,),
+        ).fetchone()
+        llm_fail = rows[0]
+        rows = conn.execute(
+            "SELECT AVG(latency_ms), MAX(latency_ms) FROM llm_calls WHERE created_at >= ?",
+            (cutoff,),
+        ).fetchone()
+        avg_latency = rows[0]
+        max_latency = rows[1]
+        rows = conn.execute(
+            "SELECT COUNT(*) FROM order_events WHERE created_at >= ? AND event_type='exited'",
+            (cutoff,),
+        ).fetchone()
+        exits = rows[0]
+        rows = conn.execute(
+            "SELECT COUNT(*) FROM quote_snapshots WHERE created_at >= ?",
+            (cutoff,),
+        ).fetchone()
+        quote_checks = rows[0]
+        rows = conn.execute(
+            "SELECT COUNT(*) FROM quote_snapshots WHERE created_at >= ? AND quote_ok=0",
+            (cutoff,),
+        ).fetchone()
+        quote_rejections = rows[0]
+    return {
+        "period_days": days,
+        "llm_calls_total": llm_total,
+        "llm_calls_ok": llm_ok,
+        "llm_calls_failed": llm_fail,
+        "llm_avg_latency_ms": round(avg_latency, 1) if avg_latency else None,
+        "llm_max_latency_ms": round(max_latency, 1) if max_latency else None,
+        "exits_triggered": exits,
+        "quote_checks": quote_checks,
+        "quote_rejections": quote_rejections,
+    }
